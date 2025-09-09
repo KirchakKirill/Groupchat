@@ -1,6 +1,7 @@
 package com.example.group_chat.presentation.screens
 
 
+import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +22,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -39,6 +42,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Alignment.Companion.CenterVertically
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -57,6 +61,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.navigation.NavController
 import com.example.group_chat.R
+import com.example.group_chat.domain.model.UserChatRolesModel
 
 
 @Composable
@@ -69,10 +74,10 @@ fun ListChatScreen(chatsViewModel: ChatsViewModel,
     val chats by chatsViewModel.chats.collectAsState()
     val state by chatsViewModel.state.collectAsState()
     val chatUser by chatsViewModel.chatUser.collectAsState()
+    val currentPage by chatsViewModel.currentPage.collectAsState()
 
     LaunchedEffect(Unit) {
-        chatsViewModel.getAllChats(token)
-        chatsViewModel.getChatByUser(token)
+        chatsViewModel.loadStartInfo(token,currentPage, senderId)
     }
 
     when (state){
@@ -86,7 +91,7 @@ fun ListChatScreen(chatsViewModel: ChatsViewModel,
             }
         }
         is ChatsViewModel.ChatState.ChatSuccess ->{
-            ChatSuccessView(chatsViewModel,chats,chatUser,navController,senderId,token,nameUser)
+            ChatSuccessView(chatsViewModel,chats,chatUser,navController,senderId,token,nameUser,currentPage)
         }
         is ChatsViewModel.ChatState.ChatError -> {
             ScreenErrorView((state as ChatsViewModel.ChatState.ChatError).e?.message ?: "Server error, please, try again later") { navController.popBackStack() }
@@ -96,39 +101,94 @@ fun ListChatScreen(chatsViewModel: ChatsViewModel,
 }
 
 @Composable
-fun ChatSuccessView(chatsViewModel: ChatsViewModel,
-                    chats:List<ChatModel>,
-                    chatUser:List<ChatModel>,
-                    navController: NavController,
-                    senderId: String,
-                    token:String,
-                    nameUser: String)
-{
-
-    val isEnableDialog = remember { mutableStateOf(false)}
+fun ChatSuccessView(
+    chatsViewModel: ChatsViewModel,
+    chats: List<ChatModel>,
+    chatUser: List<UserChatRolesModel>,
+    navController: NavController,
+    senderId: String,
+    token: String,
+    nameUser: String,
+    currentPage:Int
+) {
+    val isEnableDialog = remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .statusBarsPadding()
     ) {
-        LazyColumn {
-            items(chats, key = {it.id}){ chat->
-                ChatCard(chat,chatsViewModel, navController, senderId,token,chatUser,nameUser)
+        LazyColumn(
+            modifier = Modifier.weight(1f)
+        ) {
+            items(chats, key = { it.id }) { chat ->
+                ChatCard(chat, chatsViewModel, navController, senderId, token, chatUser, nameUser)
             }
         }
-        Spacer(modifier = Modifier.padding(10.dp))
-        Button(onClick = {isEnableDialog.value = true},
-            modifier = Modifier.align(Alignment.End)) {
-            Text(text="Create?")
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = CenterVertically
+        ) {
+
+                Button(
+                    onClick = {
+                        chatsViewModel.getPrevPage(token, senderId)
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp),
+                    enabled = currentPage > 0,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary
+                    )
+                ) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = "Previous")
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(text = "Prev")
+                }
+
+            Button(
+                onClick = { isEnableDialog.value = true },
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 8.dp)
+                ,
+                shape = CircleShape,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.secondary
+                )
+            ) {
+                Icon(Icons.Default.Add, contentDescription = "Create")
+            }
+
+
+                Button(
+                    onClick = { chatsViewModel.getNextPage(token, senderId) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 8.dp),
+                    enabled = chats.size >= chatsViewModel.LIMIT ,
+                    shape = RoundedCornerShape(10.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary
+                    )
+                ) {
+                    Text(text = "Next")
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(Icons.Default.ArrowForward, contentDescription = "Next")
+                }
+
         }
 
-        if (isEnableDialog.value)
-            CustomDialogUI(chatsViewModel,isEnableDialog,token)
+        if (isEnableDialog.value) {
+            CustomDialogUI(chatsViewModel, isEnableDialog, token)
+        }
     }
-
-
-
 }
 
 @Composable
@@ -235,7 +295,7 @@ fun ChatCard(chat:ChatModel,
              navController: NavController,
              senderId:String,
              token:String,
-             chatUser:List<ChatModel>,
+             chatUser:List<UserChatRolesModel>,
              nameUser: String){
     Card(
         modifier = Modifier
@@ -279,8 +339,10 @@ fun ChatCard(chat:ChatModel,
                     .weight(1f)
                     .padding(horizontal = 16.dp)
             )
+            val tmp = chatUser.map { it.chatId }
+            Log.d("TMP", "${chat.id} IN? $tmp")
 
-            if (!chatUser.map { it.id }.contains(chat.id)) {
+            if (!tmp.contains(chat.id)) {
                 val followButtonClickHandler = {
                     chatsViewModel.followChat(chatId = chat.id, token = token)
                 }
@@ -327,15 +389,16 @@ fun ChatSuccessViewPreview(){
     val token = "sglmrglksnfampaa4243smg"
 
     val chats = listOf(
-        ChatModel("1","room1"),
-        ChatModel("2","room2"),
-        ChatModel("3","room3")
+        ChatModel("1","room1","123"),
+        ChatModel("2","room2","123"),
+        ChatModel("3","room3","123")
     )
     val chatUser = listOf(
-        ChatModel("2","room2"),
-        ChatModel("3","room3")
+        UserChatRolesModel("2","room2","123", role = "USER","today"),
+        UserChatRolesModel("3","room3","123", role = "USER","today"),
     )
     val nameUser = "User1"
+    val currentPage = 0
 
-    ChatSuccessView(chatsViewModel,chats,chatUser,navController,senderId,token,nameUser)
+    ChatSuccessView(chatsViewModel,chats,chatUser,navController,senderId,token,nameUser,currentPage)
 }

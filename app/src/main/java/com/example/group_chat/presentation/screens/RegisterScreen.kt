@@ -27,6 +27,8 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,11 +42,12 @@ import io.mockk.mockk
 fun RegisterScreen(registerViewModel: RegisterViewModel, navController: NavController){
     val registerInfo by registerViewModel.registerInfo.collectAsState()
     val registerState by registerViewModel.registerState.collectAsState()
+    val registerValidationErrors by registerViewModel.validationErrors.collectAsState()
 
     when (val state = registerState){
-        is RegisterViewModel.RegisterState.RegisterNothing -> RegisterScreenView(navController,registerViewModel, registerInfo)
+        is RegisterViewModel.RegisterState.RegisterNothing -> RegisterScreenView(navController,registerViewModel, registerInfo, registerValidationErrors)
         is RegisterViewModel.RegisterState.RegisterSuccess -> navController.navigate("login")
-        is RegisterViewModel.RegisterState.RegisterError -> RegisterScreenView(navController,registerViewModel,registerInfo
+        is RegisterViewModel.RegisterState.RegisterError -> RegisterScreenView(navController,registerViewModel,registerInfo,registerValidationErrors
         ) {
             ScreenErrorView(state.e?.message ?: "Register unknown error") {
                 registerViewModel.resetState()
@@ -80,6 +83,7 @@ fun ErrorTextPreview(){
 fun RegisterScreenView(navController: NavController,
                        registerViewModel: RegisterViewModel,
                        registerInfo:RegisterModel,
+                       registerValidationErrors:List<RegisterViewModel.ValidationError>,
                        textBlock: (@Composable () -> Unit)? = null){
     val context = LocalContext.current
     Column(
@@ -95,13 +99,21 @@ fun RegisterScreenView(navController: NavController,
             Spacer(modifier = Modifier.padding(10.dp))
             textBlock()
         }
+        val emailError = registerValidationErrors.firstOrNull{ it is RegisterViewModel.ValidationError.EmailValidationError }
+        val usernameError = registerValidationErrors.firstOrNull{ it is RegisterViewModel.ValidationError.UsernameValidationError }
+        val passwordError = registerValidationErrors.firstOrNull{ it is RegisterViewModel.ValidationError.PasswordValidationError }
 
-        CustomOutlinedTextField(registerViewModel::updateEmail,registerInfo.email,Icons.Outlined.MailOutline,stringResource(R.string.enter_email))
-        CustomOutlinedTextField(registerViewModel::updateUsername,registerInfo.username,Icons.Outlined.AccountCircle,stringResource(R.string.enter_username))
-        CustomOutlinedTextField(registerViewModel::updateFirstName,registerInfo.firstName,Icons.Outlined.Info,stringResource(R.string.enter_first_name))
-        CustomOutlinedTextField(registerViewModel::updateSecondName,registerInfo.secondName,Icons.Outlined.Info,stringResource(R.string.enter_second_name))
-        CustomOutlinedTextField(registerViewModel::updateAvatar,registerInfo.avatar,Icons.Outlined.Face,stringResource(R.string.enter_avatar))
-        CustomOutlinedTextField(registerViewModel::updatePassword,registerInfo.password,Icons.Outlined.Lock,stringResource(R.string.enter_password))
+        CustomOutlinedTextField(registerViewModel::updateEmail,registerInfo.email,Icons.Outlined.MailOutline,stringResource(R.string.enter_email),
+            KeyboardType.Email,emailError!=null,emailError?.message)
+        CustomOutlinedTextField(registerViewModel::updateUsername,registerInfo.username,Icons.Outlined.AccountCircle,stringResource(R.string.enter_username),
+            KeyboardType.Text,usernameError!=null,usernameError?.message)
+        CustomOutlinedTextField(registerViewModel::updateFirstName,registerInfo.firstName,Icons.Outlined.Info,stringResource(R.string.enter_first_name),KeyboardType.Text)
+        CustomOutlinedTextField(registerViewModel::updateSecondName,registerInfo.secondName,Icons.Outlined.Info,stringResource(R.string.enter_second_name),
+            KeyboardType.Text)
+        CustomOutlinedTextField(registerViewModel::updateAvatar,registerInfo.avatar,Icons.Outlined.Face,stringResource(R.string.enter_avatar),
+            KeyboardType.Text)
+        CustomOutlinedTextField(registerViewModel::updatePassword,registerInfo.password,Icons.Outlined.Lock,stringResource(R.string.enter_password),
+            KeyboardType.Password,passwordError!=null,passwordError?.message,PasswordVisualTransformation())
 
         TextButton(
             onClick = {
@@ -117,7 +129,7 @@ fun RegisterScreenView(navController: NavController,
             )
         }
 
-        CustomButton({registerViewModel.register(context = context)},
+        CustomButton({registerViewModel.register()},
             text = stringResource(R.string.registry),
             shape = RectangleShape,
             modifier = Modifier
@@ -129,14 +141,4 @@ fun RegisterScreenView(navController: NavController,
 
 
     }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun RegisterScreenViewPreview(){
-    val nav = NavController(LocalContext.current)
-    val vm = mockk<RegisterViewModel>(relaxed = true)
-    val registerInfo = RegisterModel(email = "", username = "")
-
-    RegisterScreenView(nav,vm,registerInfo)
 }

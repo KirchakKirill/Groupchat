@@ -1,6 +1,6 @@
 package com.example.group_chat.domain.interactor.chats
 
-import com.example.group_chat.domain.interactor.messages.DataValidator
+import com.example.group_chat.domain.interactor.DataValidator
 import com.example.group_chat.domain.model.ChatModel
 import com.example.group_chat.Utils.Mapper
 import com.example.group_chat.domain.repository.ChatRepository

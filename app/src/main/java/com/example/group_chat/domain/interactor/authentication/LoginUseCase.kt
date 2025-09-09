@@ -1,7 +1,7 @@
 package com.example.group_chat.domain.interactor.authentication
 
 import com.example.group_chat.Utils.MapperResult
-import com.example.group_chat.domain.interactor.messages.DataValidator
+import com.example.group_chat.domain.interactor.DataValidator
 import com.example.group_chat.domain.model.LoginRequestModel
 import com.example.group_chat.domain.model.LoginResponseModel
 import com.example.group_chat.Utils.Mapper

@@ -30,6 +30,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -62,8 +64,6 @@ fun LoginScreen(authViewModel: AuthViewModel, navController: NavController)
         is AuthViewModel.AuthState.Success -> {
             Log.d("TOKEN", state.token)
             navController.navigate("listChat/${senderId}/${state.token}/${authViewModel.nameUser}")
-
-
         }
         else -> {
             LoginView(authViewModel, context,navController)
@@ -92,11 +92,14 @@ fun LoginView(
         val password = remember { mutableStateOf("") }
         CustomOutlinedTextField(
             {emailOrUsername.value = it}, emailOrUsername.value, Icons.Outlined.AccountBox,
-            stringResource(R.string.email_or_username)
+            stringResource(R.string.email_or_username),
+            KeyboardType.Email
         )
         CustomOutlinedTextField(
             { password.value = it} , password.value, Icons.Outlined.Lock,
-            stringResource(R.string.enter_password)
+            stringResource(R.string.enter_password),
+            KeyboardType.Password,
+            visualTransformation = PasswordVisualTransformation()
         )
         Spacer(modifier = Modifier.padding(10.dp))
         TextButton(

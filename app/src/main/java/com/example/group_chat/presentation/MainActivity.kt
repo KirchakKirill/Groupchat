@@ -8,9 +8,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
+import com.example.group_chat.di.DBModule
 import com.example.group_chat.di.chatModule
 import com.example.group_chat.presentation.viewModel.AuthViewModel
-import com.example.group_chat.presentation.viewModel.MainViewModel
 import com.example.group_chat.presentation.screens.Navigation
 import com.example.group_chat.presentation.viewModel.ChatsViewModel
 import com.example.group_chat.presentation.viewModel.RegisterViewModel
@@ -22,7 +22,6 @@ import org.koin.core.context.startKoin
 
 class MainActivity : ComponentActivity() {
 
-    private val mainViewModel: MainViewModel by viewModel()
     private val authViewModel: AuthViewModel by viewModel()
     private val wsViewModel: WSViewModel by viewModel()
     private val chatsViewModel:ChatsViewModel by viewModel()
@@ -32,7 +31,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         startKoin {
             androidContext(this@MainActivity)
-            modules(chatModule)
+            modules(chatModule,DBModule)
         }
         enableEdgeToEdge()
         setContent {

@@ -1,10 +1,10 @@
 package com.example.group_chat.domain.repository
 
 import com.example.group_chat.Utils.NetworkResult
-import com.example.group_chat.data.response.AuthResponse
-import com.example.group_chat.data.response.LoginRequest
-import com.example.group_chat.data.response.RegistryRequest
-import com.example.group_chat.data.response.SuccessLoginResponse
+import com.example.group_chat.data.remote.response.AuthResponse
+import com.example.group_chat.data.remote.response.LoginRequest
+import com.example.group_chat.data.remote.response.RegistryRequest
+import com.example.group_chat.data.remote.response.SuccessLoginResponse
 
 interface AuthRepository
 {

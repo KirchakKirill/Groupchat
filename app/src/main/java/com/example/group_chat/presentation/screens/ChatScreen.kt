@@ -11,6 +11,14 @@ import android.widget.VideoView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,11 +36,14 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
@@ -48,10 +59,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -69,10 +83,11 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.example.group_chat.Utils.Mapper
-import com.example.group_chat.data.WebSocketConfig.WebSocketMessageType
+import com.example.group_chat.data.remote.WebSocketConfig.WebSocketMessageType
 import com.example.group_chat.presentation.viewModel.WSViewModel
 import com.example.group_chat.ui.theme.Pink
 import java.io.File
+import kotlinx.coroutines.delay
 
 enum class MediaType {
     IMAGE, VIDEO, AUDIO, FILE
@@ -101,6 +116,7 @@ fun ChatScreen(wsViewModel: WSViewModel, chatId:String, senderId:String, token:S
     val mediaContent = remember { mutableStateOf<String?>(null) }
     val mediaUri  = remember { mutableStateOf<Uri?>(null) }
     val mediaType = remember { mutableStateOf<MediaType?>(null) }
+    val currentPortion by wsViewModel.currentPortion.collectAsState()
 
     val launcher = rememberLauncherForActivityResult(contract = ActivityResultContracts.PickVisualMedia())
     {uri ->
@@ -120,6 +136,8 @@ fun ChatScreen(wsViewModel: WSViewModel, chatId:String, senderId:String, token:S
             Log.d("MEDIA_TYPE", mediaType.value?.name ?: "Media type is null")
         },100)
     }
+
+
 
     val selectMediaHandler = {launcher.launch(PickVisualMediaRequest(mediaType = ActivityResultContracts.PickVisualMedia.ImageAndVideo))}
     when(val connectionState = isConnected){
@@ -173,6 +191,11 @@ fun ChatConnectedView(messages:List<WebSocketMessageType>,
                       mediaUri: MutableState<Uri?>,
                       mediaContent:MutableState<String?>) {
 
+    val isLoading by remember {
+         wsViewModel.isLoading }
+    val hasMore by remember {
+       wsViewModel.hasMore }
+
 
     Column(
         modifier =
@@ -180,24 +203,67 @@ fun ChatConnectedView(messages:List<WebSocketMessageType>,
                 .statusBarsPadding()
     )
     {
+
+        if (hasMore && !isLoading) {
+            IconButton(
+                onClick = {
+                    wsViewModel.preloadMessages(chatId) },
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .padding(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowUp,
+                    contentDescription = "Load older messages"
+                )
+            }
+        }
+
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+            }
+        }
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .weight(1f)
-        ) {
-            items(messages) { message ->
+                .animateContentSize()
 
-                when (message) {
-                    is WebSocketMessageType.SystemMessage -> SystemMessageView(message)
-                    is WebSocketMessageType.UserMessage -> UserMessageView(message,senderId)
-                    is WebSocketMessageType.MessageError -> ScreenErrorView(message.error.message ?: "Load chats error", errorHandler)
+        ) {
+            itemsIndexed(items = messages,
+                key = { index,message ->
+                    when (message) {
+                        is WebSocketMessageType.SystemMessage -> "system_${message.text}_$index"
+                        is WebSocketMessageType.UserMessage -> "user_${message.data.id}_$index"
+                        is WebSocketMessageType.MessageError -> "error_${System.currentTimeMillis()}_$index"
+                    }
+                })
+            { _, message ->
+                AnimatedVisibility(visible = true,
+                    enter = fadeIn(animationSpec = tween(300)) +
+                            slideInVertically(animationSpec = tween(300)) { it / 2 },
+                    exit = fadeOut(animationSpec = tween(300)) +
+                            slideOutVertically(animationSpec = tween(300)) { it / 2 }) {
+                    when (message) {
+                        is WebSocketMessageType.SystemMessage -> SystemMessageView(message)
+                        is WebSocketMessageType.UserMessage -> UserMessageView(message,senderId)
+                        is WebSocketMessageType.MessageError -> ScreenErrorView(message.error.message ?: "Load chats error", errorHandler)
+                    }
                 }
 
             }
+
         }
         MediaSendView(mediaUri, mediaType,mediaContent)
         EnterMessageFieldView(wsViewModel,chatId,senderId,nameUser,selectMediaHandler,mediaType,mediaContent,mediaUri)
     }
+
 }
 
 @Composable
@@ -223,7 +289,7 @@ fun SystemMessageView(message: WebSocketMessageType.SystemMessage) {
 }
 
 @Composable
-fun UserMessageView(message:WebSocketMessageType.UserMessage,senderId: String){
+fun UserMessageView(message: WebSocketMessageType.UserMessage, senderId: String){
     val fromMe = message.data.senderId == senderId
     val context = LocalContext.current
     Log.d(

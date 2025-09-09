@@ -3,16 +3,17 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.plugin.serialization)
+    alias(libs.plugins.devtoolsKsp)
 }
 
 android {
     namespace = "com.example.group_chat"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.group_chat"
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
@@ -31,6 +32,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+
     }
     kotlinOptions {
         jvmTarget = "11"
@@ -71,6 +73,13 @@ dependencies {
     implementation(libs.androidx.browser)
     implementation(libs.play.services.base)
     implementation(kotlin("reflect"))
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    implementation(libs.threetenabp)
+    implementation ("androidx.datastore:datastore:1.0.0")
+    implementation ("androidx.datastore:datastore-preferences:1.0.0")
+    annotationProcessor(libs.androidx.room.room.compiler)
+    ksp(libs.androidx.room.room.compiler)
     //testImplementation(libs.junit)
     //androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

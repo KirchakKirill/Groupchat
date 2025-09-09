@@ -19,17 +19,19 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.group_chat.R
 import com.example.group_chat.Utils.EncryptionHelper
+import com.example.group_chat.Utils.getPayloadElement
+import com.example.group_chat.data.local.manager.AuthManager
+import com.example.group_chat.data.local.repository.LocalUserRepository
 import com.example.group_chat.domain.interactor.authentication.AuthUseCase
 import com.example.group_chat.domain.interactor.authentication.LoginUseCase
 import com.example.group_chat.domain.model.LoginRequestModel
+import com.example.group_chat.domain.model.UserModel
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
-import com.google.gson.Gson
-import com.google.gson.JsonObject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,17 +42,35 @@ import kotlinx.coroutines.launch
 open class AuthViewModel(
     private val authUseCase: AuthUseCase,
     private val loginUseCase: LoginUseCase,
-    private val encryptionHelper: EncryptionHelper
+    private val encryptionHelper: EncryptionHelper,
+    private val authManager: AuthManager,
+    private val userRepository: LocalUserRepository
 ):ViewModel()
 {
     private var _senderId = MutableStateFlow("")
     val senderId: StateFlow<String> = _senderId.asStateFlow()
 
-    private var _authState = MutableStateFlow<AuthState>(AuthState.doNothing)
+    private var _authState = MutableStateFlow<AuthState>(AuthState.Loading)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
 
     lateinit var nameUser:String
         private set
+
+    init {
+        viewModelScope.launch {
+            authManager.isValidAuthData().onSuccess {
+                Log.d("PrefsData", "userId: ${it.userId}, username: ${it.username}, token: ${it.token}")
+                _senderId.value  = it.userId!!
+                nameUser = it.username!!
+                _authState.value = AuthState.Success(it.token!!)
+            }
+                .onFailure {
+                    authManager.clear()
+                    Log.e("PREFERENCES_ERROR", it.message ?: "Unknown preferences error")
+                    _authState.value = AuthState.doNothing
+                }
+        }
+    }
 
 
 
@@ -62,11 +82,24 @@ open class AuthViewModel(
                 password = encryptionHelper.encrypt(password)
             )
             loginUseCase.invoke(loginData).onSuccess {
-                _authState.value = it.token?.let { token ->
-                      AuthState.Success(token)
+
+                _authState.value =  it.token?.let { token ->
+                    _senderId.value  = it.id
+                    nameUser = it.username
+
+                    userRepository.addUser(UserModel(
+                        id = it.id,
+                        email = it.email,
+                        username = it.username,
+                        firstName = it.firstName,
+                        secondName = it.secondName,
+                        avatar = it.avatar
+                    ))
+                    authManager.save(it.token, senderId.value,nameUser,it.exp)
+                    AuthState.Success(token)
                  } ?: AuthState.Error("Token cannot be a null")
-                _senderId.value  = it.id
-                nameUser = it.username
+
+
             }
                 .onFailure {
                     _authState.value = AuthState.Error(it.message?: "Unknown error login")
@@ -125,17 +158,22 @@ open class AuthViewModel(
         }
     }
 
-    private fun handleSignIn(credentialResponse: GetCredentialResponse):String? {
+    private suspend fun handleSignIn(credentialResponse: GetCredentialResponse):String? {
         val credential = credentialResponse.credential
         if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL)
         {
             try {
                 val googleIdTokenCredential = GoogleIdTokenCredential
                     .createFrom(credential.data)
-                _senderId.value = getGoogleSub(googleIdTokenCredential.idToken)
+                 val sub = getGoogleSub(googleIdTokenCredential.idToken)
+                _senderId.value = sub
+
+                createUserFromGoogle(googleIdTokenCredential)
+
                 googleIdTokenCredential.displayName?.let {
                     nameUser = it
                 }
+
                 Log.d("ID",senderId.value)
                 return  googleIdTokenCredential.idToken
 
@@ -157,12 +195,19 @@ open class AuthViewModel(
         return map["sub"]!!
     }
 
-    private fun getPayloadElement(idToken: String,vararg names:String):Map<String,String>{
-        val segments = idToken.split(".")
-        val payloadAsByteArray:ByteArray =  Base64.decode(segments[1], Base64.NO_PADDING)
-        val payloadInJson = Gson().fromJson(payloadAsByteArray.toString(Charsets.UTF_8),JsonObject::class.java)
-        return names.associateWith { payloadInJson.get(it).asString }
+    private suspend fun createUserFromGoogle(googleIdTokenCredential: GoogleIdTokenCredential)
+    {
+        userRepository.addUser(UserModel(
+            id = senderId.value,
+            username = googleIdTokenCredential.displayName ?:"User#${senderId.value}",
+            email = googleIdTokenCredential.id,
+            firstName = googleIdTokenCredential.givenName,
+            secondName = googleIdTokenCredential.familyName,
+            avatar = googleIdTokenCredential.profilePictureUri.toString() //Uri
+
+        ))
     }
+
 
     private fun addGoogleAccount(context: Context) {
         val intent = Intent(Settings.ACTION_ADD_ACCOUNT).apply {
@@ -178,7 +223,9 @@ open class AuthViewModel(
             _authState.value = AuthState.Loading
            val result =  authUseCase.verify(googleToken)
             result.onSuccess {
-                _authState.value = AuthState.Success(it.token!!)
+                _authState.value = AuthState.Success(it.token)
+
+                authManager.save(it.token, senderId.value,nameUser,it.exp)
             }
                 .onFailure { cause ->
                     _authState.value = AuthState.Error(

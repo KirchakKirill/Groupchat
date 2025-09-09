@@ -1,17 +1,16 @@
 package com.example.group_chat.Utils
 
-import android.content.ContentResolver
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
-import com.example.group_chat.data.response.ChatResponse
-import com.example.group_chat.data.response.LoginRequest
-import com.example.group_chat.data.response.MessageResponse
-import com.example.group_chat.data.response.RegistryRequest
-import com.example.group_chat.data.response.SuccessLoginResponse
+import com.example.group_chat.data.remote.response.ChatResponse
+import com.example.group_chat.data.remote.response.LoginRequest
+import com.example.group_chat.data.remote.response.MessageResponse
+import com.example.group_chat.data.remote.response.RegistryRequest
+import com.example.group_chat.data.remote.response.SuccessLoginResponse
 import com.example.group_chat.domain.model.ChatModel
 import com.example.group_chat.domain.model.LoginRequestModel
 import com.example.group_chat.domain.model.LoginResponseModel
@@ -21,34 +20,79 @@ import java.io.ByteArrayOutputStream
 import kotlin.reflect.full.primaryConstructor
 import android.util.Base64
 import android.util.Log
+import com.example.group_chat.data.remote.response.AuthResponse
+import com.example.group_chat.data.remote.response.UserChatRolesResponse
+import com.example.group_chat.domain.model.LoginGoogleModel
+import com.example.group_chat.domain.model.UserChatRolesModel
 import java.io.File
 import java.io.FileOutputStream
 
 object Mapper
 {
-    fun mapMessageResponseToModel(response:MessageResponse?):MapperResult<MessageModel>
+    fun mapMessageResponseToModel(response: MessageResponse?):MapperResult<MessageModel>
     {
         if  (response==null) return MapperResult.Error(null,"Response should has a value")
          with(response){
 
-            takeIf { listOf(chatId,senderId,content,contentType,username).all { it!=null } }?.let{
+            takeIf { listOf(chatId,senderId,content,contentType,username,createdAt,id).all { it!=null } }?.let{
                 return MapperResult.Success(MessageModel(
+                    id = id!!,
                     chatId = chatId!!,
                     senderId = senderId!!,
                     contentType = contentType!!,
                     content = content!!,
                     username = username!!,
-                    mediaContent = mediaContent
+                    mediaContent = mediaContent,
+                    createdAt = createdAt!!
                 ))
             } ?: MapperResult.Error(null,"Invalid data from response")
-            }
+         }
         return  MapperResult.Error(null,"Unexpected error during mapping to message model")
     }
+
+    fun mapToLoginGoogleModel(authResponse: AuthResponse?):MapperResult<LoginGoogleModel>{
+
+        if (authResponse==null)  return MapperResult.Error(null,"Response should has a value")
+
+        with(authResponse){
+            takeIf { listOf(token,email,exp).all { !it.isNullOrEmpty() } }?.let {
+                return MapperResult.Success(LoginGoogleModel(
+                    token = token!!,
+                    email = email!!,
+                    exp = exp!!
+                ))
+            } ?: MapperResult.Error(null,"Invalid data from response")
+
+        }
+        return  MapperResult.Error(null,"Unexpected error during mapping to login google model")
+    }
+    fun mapToUserChatRolesModel(response: UserChatRolesResponse?): MapperResult<UserChatRolesModel> {
+        Log.d("MAPPER","Response = $response")
+            if (response == null) return MapperResult.Error(null, "Response should has a value")
+
+            return with(response) {
+                Log.d("MAPPER", "id = $id,userId = $userId,chatId = $chatId,role = $role,joinedAt = $joinedAt")
+                if (listOf(id, userId, chatId, role, joinedAt).all { !it.isNullOrEmpty() }) {
+                    MapperResult.Success(
+                        UserChatRolesModel(
+                            id = id!!,
+                            chatId = chatId!!,
+                            userId = userId!!,
+                            role = role!!,
+                            joinedAt = joinedAt!!
+                        )
+                    )
+                } else {
+                    MapperResult.Error(null, "Invalid data from response: $response")
+                }
+            }
+        }
+
 
     fun mapChatResponseToModel(response: ChatResponse?):MapperResult<ChatModel>
     {
 
-        return mapToModel(response, response?.id, response?.name)
+        return mapToModel(response, response?.id, response?.name,response?.createdAt)
 
     }
 
@@ -63,7 +107,8 @@ object Mapper
                this?.username,
                fN,
                sN,
-               ava
+               ava,
+               this?.exp
            )
         }
 

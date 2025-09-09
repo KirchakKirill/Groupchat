@@ -2,59 +2,113 @@ package com.example.group_chat.presentation.viewModel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.group_chat.domain.interactor.chats.ChatAllUseCase
-import com.example.group_chat.domain.interactor.chats.ChatByUserUseCase
+import com.example.group_chat.Utils.FlowState
+import com.example.group_chat.data.local.repository.LocalChatRepository
+import com.example.group_chat.data.local.repository.LocalUserChatRepository
 import com.example.group_chat.domain.interactor.chats.ChatCreateUseCase
 import com.example.group_chat.domain.interactor.chats.ChatFollowUseCase
+import com.example.group_chat.domain.interactor.chats.ChatsPartUseCase
+import com.example.group_chat.domain.interactor.chats.CheckFollowingChatsUseCase
 import com.example.group_chat.domain.model.ChatModel
+import com.example.group_chat.domain.model.UserChatRolesModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class ChatsViewModel(
-    private val chatAllUseCase: ChatAllUseCase,
-    private val chatByUserUseCase: ChatByUserUseCase,
     private val chatCreateUseCase: ChatCreateUseCase,
-    private val chatFollowUseCase: ChatFollowUseCase
+    private val chatFollowUseCase: ChatFollowUseCase,
+    private val chatPartUseCase: ChatsPartUseCase,
+    private val checkFollowingChatsUseCase: CheckFollowingChatsUseCase,
+    private val localChatRepository: LocalChatRepository,
+    private  val localUserChatRepository: LocalUserChatRepository
 ):ViewModel()
 {
 
     private val _chats = MutableStateFlow<List<ChatModel>>(emptyList())
     val chats:StateFlow<List<ChatModel>> = _chats.asStateFlow()
 
-    private val _chatUser = MutableStateFlow<List<ChatModel>>(emptyList())
-    val chatUser:StateFlow<List<ChatModel>>  = _chatUser.asStateFlow()
+    private val _chatUser = MutableStateFlow<List<UserChatRolesModel>>(emptyList())
+    val chatUser:StateFlow<List<UserChatRolesModel>>  = _chatUser.asStateFlow()
 
     private val _state = MutableStateFlow<ChatState>(ChatState.Loading)
     val state:StateFlow<ChatState> = _state.asStateFlow()
 
+    private val _currentPage = MutableStateFlow(0)
+    val currentPage:StateFlow<Int> = _currentPage.asStateFlow()
 
-     fun getAllChats(token:String){
+    val LIMIT = 5;
+
+    fun loadStartInfo(token:String,offset: Int,userId: String){
+        getAllChats(token,offset,userId)
+    }
+
+     private fun getAllChats(token:String,offset: Int,userId:String){
         viewModelScope.launch {
-            chatAllUseCase.invoke("Bearer $token")
-                .onSuccess {
-                    _chats.value = it
-                    _state.value = ChatState.ChatSuccess
+            chatPartUseCase.invoke("Bearer $token",offset.toString(),LIMIT.toString())
+                .collect { chatsRes ->
+                    when (chatsRes) {
+                        is FlowState.Loading -> {
+                            _state.value = ChatState.Loading
+                        }
+
+                        is FlowState.Success -> {
+                            _chats.value = chatsRes.data!!
+                            if(chats.value.isNotEmpty()){
+                                getChatByUser(token, userId, chatsRes.data)
+                            }else{
+                                _state.value = ChatState.ChatSuccess
+                            }
+                        }
+
+                        is FlowState.Error -> {
+                            _chats.value = chatsRes.data ?: emptyList()
+                            _state.value = ChatState.ChatSuccess
+                        }
+                    }
                 }
-                .onFailure { cause ->
-                    _state.value = ChatState.ChatError(cause)
-                }
+
+
         }
     }
 
-    fun getChatByUser(token:String){
+
+
+
+    private fun getChatByUser(token:String,userId:String,chats:List<ChatModel>){
         viewModelScope.launch {
-            chatByUserUseCase.invoke("Bearer $token")
-                .onSuccess {
-                    _chatUser.value = it
-                    _state.value = ChatState.ChatSuccess
+                if (chats.isNotEmpty()) {
+                    val chatIds = chats.map { it.id }
+                    checkFollowingChatsUseCase.invoke("Bearer $token", chatIds, userId)
+                        .collect { flowState ->
+                            when {
+                                flowState is FlowState.Success -> {
+                                    _chatUser.value = flowState.data ?: emptyList()
+                                    _state.value = ChatState.ChatSuccess
+                                }
+
+                                flowState is FlowState.Error -> {
+                                    _state.value = ChatState.ChatError(flowState.error)
+                                }
+                            }
+                        }
                 }
-                .onFailure { cause ->
-                    _state.value = ChatState.ChatError(cause)
-                }
+
         }
+    }
+
+    fun getNextPage(token:String,userId:String){
+        _currentPage.value += 1
+        val offset = _currentPage.value * LIMIT
+        getAllChats(token,offset, userId )
+    }
+    fun getPrevPage(token:String,userId:String){
+        _currentPage.value -= 1
+        val offset = _currentPage.value * LIMIT
+        getAllChats(token,offset, userId)
     }
 
     fun createChat(chatName:String,token:String){
@@ -62,8 +116,18 @@ class ChatsViewModel(
             _state.value  = ChatState.Loading
             chatCreateUseCase.invoke(chatName,"Bearer $token")
                 .onSuccess { chat ->
-                    _chats.update { it + chat }
-                    _chatUser.update { it + chat }
+                    val chatModel =  ChatModel(
+                        id = chat.chatId,
+                        name = chatName,
+                        createdAt = chat.joinedAt
+                    )
+                    if (chats.value.size < LIMIT)
+                    {
+                        _chats.update { it + chatModel  }
+                    }
+                    localChatRepository.addChat(chatModel)
+                    localUserChatRepository.followChat(chat)
+                    _chatUser.update { it + chat}
                     _state.value = ChatState.ChatSuccess
                 }
                 .onFailure {
@@ -81,10 +145,10 @@ class ChatsViewModel(
                 return@launch
             }
             else{
-                _state.value = ChatState.Loading
                 chatFollowUseCase.invoke(chatId,"Bearer $token")
-                    .onSuccess {
-                        _chatUser.update { it + exists }
+                    .onSuccess { fChat->
+                        _chatUser.update { it + fChat }
+                        localUserChatRepository.followChat(fChat)
                         _state.value = ChatState.ChatSuccess
                     }
                     .onFailure {
